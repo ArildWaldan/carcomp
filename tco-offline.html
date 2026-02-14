@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TCO Car Comparator — Offline</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#0b1220; color:#e6edf7; margin:0; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .card { background:#111a2b; border:1px solid #24324a; border-radius:12px; padding:14px; margin-bottom:14px; }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    .muted { color:#9fb0cc; font-size: 13px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; }
+    label { font-size:12px; color:#9fb0cc; display:block; margin-bottom:4px; }
+    input[type='range'] { width:100%; }
+    .value { font-weight:700; font-size:14px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { border-bottom:1px solid #24324a; padding:8px; text-align:right; }
+    th:first-child, td:first-child { text-align:left; }
+    tr:hover { background:#17233a; }
+    .best { color:#40e08c; font-weight:700; }
+    .pill { display:inline-block; background:#213352; color:#bfd3f5; padding:2px 8px; border-radius:20px; font-size:11px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Comparateur TCO (offline, sans terminal)</h1>
+      <div class="muted">Ouvre ce fichier HTML directement dans ton navigateur. Aucun npm, aucune installation.</div>
+    </div>
+
+    <div class="card grid">
+      <div>
+        <label>Kilomètres / an</label>
+        <input id="kmYear" type="range" min="5000" max="30000" step="1000" value="12000" />
+        <div class="value" id="kmYearVal"></div>
+      </div>
+      <div>
+        <label>Prix électricité (€/kWh)</label>
+        <input id="elecP" type="range" min="0.10" max="0.40" step="0.01" value="0.21" />
+        <div class="value" id="elecPVal"></div>
+      </div>
+      <div>
+        <label>Prix essence (€/L)</label>
+        <input id="fuelP" type="range" min="1.40" max="2.20" step="0.02" value="1.78" />
+        <div class="value" id="fuelPVal"></div>
+      </div>
+      <div>
+        <label>Inflation énergie</label>
+        <input id="eInfl" type="range" min="0" max="0.10" step="0.005" value="0.05" />
+        <div class="value" id="eInflVal"></div>
+      </div>
+      <div>
+        <label>Inflation générale</label>
+        <input id="gInfl" type="range" min="0" max="0.06" step="0.005" value="0.025" />
+        <div class="value" id="gInflVal"></div>
+      </div>
+      <div>
+        <label>Taux opportunité</label>
+        <input id="oppRate" type="range" min="0" max="0.06" step="0.005" value="0.03" />
+        <div class="value" id="oppRateVal"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; gap:14px; flex-wrap:wrap; margin-bottom:10px;">
+        <label><input id="inclSurbonus" type="checkbox" checked> Inclure surbonus</label>
+        <label><input id="inclOpp" type="checkbox" checked> Inclure coût d'opportunité</label>
+      </div>
+      <div class="pill" id="summary"></div>
+    </div>
+
+    <div class="card">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Scénario</th>
+            <th>Achat net</th>
+            <th>OPEX cumulé 10 ans</th>
+            <th>Coût opportunité</th>
+            <th>Revente an 10</th>
+            <th>TCO net 10 ans</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card muted">
+      Route la plus courte sans terminal : <strong>double-cliquer ce fichier</strong>.<br>
+      Si ton entreprise bloque les fichiers locaux, envoie ce fichier sur Google Drive puis "Ouvrir avec" un navigateur/preview web interne.
+    </div>
+  </div>
+
+<script>
+const REF_KM_YEAR = 12000;
+const YEARS = 10;
+
+const SCENARIOS = [
+  { id:"r5_40", name:"R5 40 kWh", catalogPrice:24990, bonus:4700, surbonus:1200, kwh100km:15, chargingEfficiency:0.88, isEV:true, insuranceYr:580, maintenanceYr1:180, maintenanceGrowth:0.06, tiresCostPerKm:0.013, ctYr:35, startingKm:0, startingAge:0, resaleByYear:[24990,20000,16500,11000,9500,8500,7500,6700,5900,5400,5000], resaleDecayRate:0.0018, resaleFloor:0.25 },
+  { id:"r5_52_lld", name:"R5 52 kWh (LLD)", catalogPrice:31490, bonus:0, surbonus:0, isEV:true, kwh100km:15.5, chargingEfficiency:0.88, insuranceYr:620, maintenanceYr1:70, maintenanceGrowth:0.02, tiresCostPerKm:0.013, ctYr:0, startingKm:0, startingAge:0, isLease:true, leaseMonthly:329, leaseInitialFee:3200, leaseAnnualAdmin:160, leaseKmPerYear:10000, leaseExcessKm:0.09, leaseInflationShare:0.4, resaleByYear:Array(11).fill(0), resaleDecayRate:0, resaleFloor:0 },
+  { id:"r5_52", name:"R5 52 kWh", catalogPrice:31490, bonus:4700, surbonus:1200, kwh100km:15.5, chargingEfficiency:0.88, isEV:true, insuranceYr:620, maintenanceYr1:180, maintenanceGrowth:0.06, tiresCostPerKm:0.013, ctYr:35, startingKm:0, startingAge:0, resaleByYear:[31490,25200,20500,14000,12500,11000,9700,8700,7800,7100,6500], resaleDecayRate:0.0018, resaleFloor:0.25 },
+  { id:"e2008", name:"e-2008 50kWh", catalogPrice:17499, bonus:0, surbonus:0, kwh100km:17, chargingEfficiency:0.88, isEV:true, insuranceYr:550, maintenanceYr1:220, maintenanceGrowth:0.07, tiresCostPerKm:0.013, ctYr:35, startingKm:26900, startingAge:2.5, resaleByYear:[17499,15500,14000,12000,10500,9200,8000,7000,6200,5500,5000], resaleDecayRate:0.002, resaleFloor:0.20 },
+  { id:"ec4_2022", name:"ë-C4 Shine 2022", catalogPrice:17399, bonus:0, surbonus:0, kwh100km:17, chargingEfficiency:0.88, isEV:true, insuranceYr:530, maintenanceYr1:200, maintenanceGrowth:0.07, tiresCostPerKm:0.013, ctYr:35, startingKm:7471, startingAge:3.3, resaleByYear:[17399,15200,13500,11500,10000,8800,7600,6600,5800,5200,4600], resaleDecayRate:0.002, resaleFloor:0.20 },
+  { id:"ec4_2024", name:"E-C4 2024", catalogPrice:18999, bonus:0, surbonus:0, kwh100km:16.5, chargingEfficiency:0.88, isEV:true, insuranceYr:540, maintenanceYr1:190, maintenanceGrowth:0.06, tiresCostPerKm:0.013, ctYr:35, startingKm:9554, startingAge:1.3, resaleByYear:[18999,17000,15200,13000,11500,10200,9000,8000,7200,6500,5800], resaleDecayRate:0.002, resaleFloor:0.20 },
+  { id:"arkana", name:"Arkana E-Tech 145", catalogPrice:19290, bonus:0, surbonus:0, l100km:5.5, isEV:false, isHybrid:true, insuranceYr:600, maintenanceYr1:400, maintenanceGrowth:0.08, tiresCostPerKm:0.010, ctYr:60, startingKm:30200, startingAge:3, resaleByYear:[19290,17000,15000,13000,11500,10000,8800,7800,7000,6300,5700], resaleDecayRate:0.0018, resaleFloor:0.15 },
+  { id:"ds3", name:"DS3 E-Tense 2020", catalogPrice:16499, bonus:0, surbonus:0, kwh100km:17.5, chargingEfficiency:0.88, isEV:true, insuranceYr:500, maintenanceYr1:280, maintenanceGrowth:0.09, tiresCostPerKm:0.013, ctYr:35, startingKm:12493, startingAge:6, resaleByYear:[16499,14000,12000,10500,9000,7800,6800,6000,5300,4700,4200], resaleDecayRate:0.0025, resaleFloor:0.15 }
+];
+
+const € = n => Math.round(n).toLocaleString('fr-FR') + ' €';
+const p = n => (n*100).toFixed(1)+' %';
+
+function getNetPurchase(s, inclSurbonus){ if(s.isLease) return s.leaseInitialFee||0; return s.catalogPrice - s.bonus - (inclSurbonus ? s.surbonus:0); }
+function getMaintenanceForYear(s,y){ return s.maintenanceYr1*Math.pow(1+s.maintenanceGrowth,y-1); }
+function getEnergyForYear(s,kmYear,elecBase,fuelBase,eInfl,y){ const m=Math.pow(1+eInfl,y-1); if(s.isEV) return (s.kwh100km/s.chargingEfficiency*kmYear)/100*elecBase*m; return (s.l100km*kmYear)/100*fuelBase*m; }
+function getTiresForYear(s,kmYear,gInfl,y){ return s.tiresCostPerKm*kmYear*Math.pow(1+gInfl,y-1); }
+function getInsuranceForYear(s,gInfl,y){ const damping=Math.max(0.65,1-0.04*(y-1)); return s.insuranceYr*damping*Math.pow(1+gInfl,y-1); }
+function getCTForYear(s,gInfl,y){ return s.ctYr*Math.pow(1+gInfl,y-1); }
+function getOPEXForYear(s,kmYear,elecP,fuelP,eInfl,gInfl,y){
+  const leaseRent = s.isLease ? (s.leaseMonthly*12 + (s.leaseAnnualAdmin||0))*Math.pow(1+gInfl*(s.leaseInflationShare||0.5),y-1) + Math.max(0, kmYear-(s.leaseKmPerYear||REF_KM_YEAR))*(s.leaseExcessKm||0) : 0;
+  return getEnergyForYear(s,kmYear,elecP,fuelP,eInfl,y)+leaseRent+getMaintenanceForYear(s,y)+getInsuranceForYear(s,gInfl,y)+getTiresForYear(s,kmYear,gInfl,y)+getCTForYear(s,gInfl,y);
+}
+function getCumulativeOPEX(s,years,kmYear,elecP,fuelP,eInfl,gInfl){ let t=0; for(let y=1;y<=years;y++) t+=getOPEXForYear(s,kmYear,elecP,fuelP,eInfl,gInfl,y); return t; }
+function getResale(s,year,kmYear){
+  if(s.isLease) return 0;
+  if(year<=0) return s.resaleByYear[0];
+  const idx=Math.min(year,YEARS), f=Math.floor(idx), c=Math.min(Math.ceil(idx),YEARS);
+  const base=f===c? s.resaleByYear[f] : s.resaleByYear[f]*(1-(idx-f))+s.resaleByYear[c]*(idx-f);
+  const actualKm=s.startingKm+kmYear*year, expectedKm=s.startingKm+REF_KM_YEAR*year, excessKm=actualKm-expectedKm;
+  let resale;
+  if(excessKm<=0){ const bonus=Math.min(0.15,(1-Math.exp(-Math.abs(excessKm)*0.00003))*0.20); resale=Math.round(base*(1+bonus)); }
+  else { const maxPenalty=1-s.resaleFloor; const penalty=maxPenalty*(1-Math.exp(-s.resaleDecayRate*excessKm)); resale=Math.round(base*(1-penalty)); }
+  if(s.isEV){ const totalKm=s.startingKm+kmYear*year; const age=(s.startingAge||0)+year; if(age>=8||totalKm>=160000) resale=Math.round(resale*0.85); }
+  return resale;
+}
+function getOpp(s,year,oppRate,inclSurbonus){ if(oppRate<=0) return 0; return getNetPurchase(s,inclSurbonus)*(Math.pow(1+oppRate,year)-1); }
+function getNetPosition(s,controls){
+  const {kmYear,elecP,fuelP,eInfl,gInfl,oppRate,inclSurbonus,inclOpp} = controls;
+  const opex = getCumulativeOPEX(s,YEARS,kmYear,elecP,fuelP,eInfl,gInfl);
+  const opp = inclOpp ? getOpp(s,YEARS,oppRate,inclSurbonus) : 0;
+  const buy = getNetPurchase(s,inclSurbonus);
+  const resale = getResale(s,YEARS,kmYear);
+  return { buy, opex, opp, resale, tco: buy+opex+opp-resale };
+}
+
+const ids=['kmYear','elecP','fuelP','eInfl','gInfl','oppRate','inclSurbonus','inclOpp'];
+ids.forEach(id=>document.getElementById(id).addEventListener('input',render));
+
+function controls(){
+  return {
+    kmYear:+kmYear.value, elecP:+elecP.value, fuelP:+fuelP.value, eInfl:+eInfl.value, gInfl:+gInfl.value, oppRate:+oppRate.value,
+    inclSurbonus:inclSurbonus.checked, inclOpp:inclOpp.checked
+  }
+}
+
+function render(){
+  const c=controls();
+  kmYearVal.textContent = c.kmYear.toLocaleString('fr-FR')+' km';
+  elecPVal.textContent = c.elecP.toFixed(2)+' €/kWh';
+  fuelPVal.textContent = c.fuelP.toFixed(2)+' €/L';
+  eInflVal.textContent = p(c.eInfl);
+  gInflVal.textContent = p(c.gInfl);
+  oppRateVal.textContent = p(c.oppRate);
+
+  const rows = SCENARIOS.map(s=>({s,...getNetPosition(s,c)})).sort((a,b)=>a.tco-b.tco);
+  const bestId = rows[0]?.s.id;
+  summary.textContent = `Meilleur scénario actuel: ${rows[0].s.name} (${€(rows[0].tco)} sur ${YEARS} ans)`;
+
+  tbl.querySelector('tbody').innerHTML = rows.map(r=>`<tr>
+    <td class="${r.s.id===bestId?'best':''}">${r.s.name}</td>
+    <td>${€(r.buy)}</td>
+    <td>${€(r.opex)}</td>
+    <td>${€(r.opp)}</td>
+    <td>${€(r.resale)}</td>
+    <td class="${r.s.id===bestId?'best':''}">${€(r.tco)}</td>
+  </tr>`).join('');
+}
+
+render();
+</script>
+</body>
+</html>
