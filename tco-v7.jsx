@@ -32,6 +32,39 @@ const SCENARIOS = [
     notes: "Entrée de gamme, batterie 40 kWh, produite à Douai.",
   },
   {
+    id: "r5_52_lld",
+    name: "R5 52 kWh (LLD)",
+    emoji: "📝",
+    tag: "Neuf LLD",
+    color: "#F78FB3",
+    catalogPrice: 31490,
+    bonus: 0,
+    surbonus: 0,
+    tradeIn: 0,
+    kwh100km: 15.5,
+    chargingEfficiency: 0.88,
+    isEV: true,
+    isLease: true,
+    isNew: true,
+    startingKm: 0,
+    startingAge: 0,
+    insuranceYr: 620,
+    maintenanceYr1: 70,
+    maintenanceGrowth: 0.02,
+    tiresCostPerKm: 0.013,
+    ctYr: 0,
+    leaseMonthly: 329,
+    leaseInitialFee: 3200,
+    leaseAnnualAdmin: 160,
+    leaseKmPerYear: 10000,
+    leaseExcessKm: 0.09,
+    leaseInflationShare: 0.4,
+    resaleByYear: Array(YEARS + 1).fill(0),
+    resaleDecayRate: 0,
+    resaleFloor: 0,
+    notes: "Scénario LLD optimisé (apport + loyer) basé sur meilleures offres web observées pour R5 52 kWh: pas de risque revente, maintenance lourde transférée au loueur, mais pas de capital récupéré en fin de période.",
+  },
+  {
     id: "r5_52",
     name: "R5 52 kWh",
     emoji: "⚡",
@@ -192,11 +225,13 @@ const SCENARIOS = [
 // ── CORE CALCULATIONS ──
 
 function getNetPurchase(s, inclSurbonus) {
+  if (s.isLease) return s.leaseInitialFee || 0;
   // Trade-in excluded: it's the user's existing asset (cash), not a discount on the new car
   return s.catalogPrice - s.bonus - (inclSurbonus ? s.surbonus : 0);
 }
 
 function getResale(s, year, kmYear) {
+  if (s.isLease) return 0;
   if (year <= 0) return s.resaleByYear[0];
   const idx = Math.min(year, YEARS);
   const f = Math.floor(idx);
@@ -268,7 +303,12 @@ function getCTForYear(s, gInfl, y) {
 }
 
 function getOPEXForYear(s, kmYear, elecP, fuelP, eInfl, gInfl, y) {
+  const leaseRent = s.isLease
+    ? (s.leaseMonthly * 12 + (s.leaseAnnualAdmin || 0)) * Math.pow(1 + gInfl * (s.leaseInflationShare || 0.5), y - 1)
+      + Math.max(0, kmYear - (s.leaseKmPerYear || REF_KM_YEAR)) * (s.leaseExcessKm || 0)
+    : 0;
   return getEnergyForYear(s, kmYear, elecP, fuelP, eInfl, y)
+    + leaseRent
     + getMaintenanceForYear(s, y)
     + getInsuranceForYear(s, gInfl, y)
     + getTiresForYear(s, kmYear, gInfl, y)
@@ -547,10 +587,10 @@ export default function TCOComparator() {
             Comparateur TCO v7
           </div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, lineHeight: 1.2, color: "#f8fafc" }}>
-            Coût Total de Possession — {YEARS} ans · 7 scénarios
+            Coût Total de Possession — {YEARS} ans · 8 scénarios
           </h1>
           <p style={{ fontSize: 12, color: "#64748b", margin: "3px 0 0", lineHeight: 1.4 }}>
-            2 R5 neufs + 5 occasions réelles (annonces fév. 2026) · Dépréciation convexe · Risque batterie · Assurance amortie · Inflation différenciée
+            3 R5 neufs (2 achat + 1 LLD) + 5 occasions réelles (annonces fév. 2026) · Dépréciation convexe · Risque batterie · Assurance amortie · Inflation différenciée
           </p>
         </div>
       </div>
@@ -720,6 +760,11 @@ export default function TCOComparator() {
                       const d = r5_52.tco - ranking[0].tco;
                       if (d > 500) parts.push(<span key="r"> La <strong style={{ color: r5_52.color }}>R5 52 kWh</strong> neuve est à +{Math.round(d).toLocaleString("fr-FR")} € : l'écart d'achat est le prix du neuf, de la garantie et de la technologie moderne.</span>);
                     }
+                    const r5_52_lld = ranking.find(s => s.id === "r5_52_lld");
+                    if (r5_52_lld) {
+                      const d = r5_52_lld.tco - ranking[0].tco;
+                      if (Math.abs(d) > 300) parts.push(<span key="r_lld"> La <strong style={{ color: r5_52_lld.color }}>R5 52 kWh en LLD</strong> supprime le risque de revente et de grosses interventions, mais intègre un loyer annuel incompressible et aucun actif final ({d > 0 ? `+${Math.round(d).toLocaleString("fr-FR")}` : `−${Math.round(Math.abs(d)).toLocaleString("fr-FR")}`} €).</span>);
+                    }
                     return parts;
                   })()}
                   {kmYear > 15000 && <span> À {kmYear.toLocaleString("fr-FR")} km/an, la faible conso des EV creuse l'écart face à l'hybride.</span>}
@@ -769,8 +814,9 @@ export default function TCOComparator() {
         {/* Methodology */}
         <div style={{ marginTop: 16, padding: 14, background: "#020617", borderRadius: 10, border: "1px solid #1e293b", fontSize: 10, color: "#475569", lineHeight: 1.8 }}>
           <strong style={{ color: "#64748b" }}>📋 Méthodologie v7</strong><br />
-          • <strong>Horizon</strong> : {YEARS} ans, 7 scénarios — 2 R5 neufs (bonus + surbonus), 4 EV occasion, 1 hybride occasion.<br />
+          • <strong>Horizon</strong> : {YEARS} ans, 8 scénarios — 2 R5 neufs à l'achat, 1 R5 neuve en LLD, 4 EV occasion, 1 hybride occasion.<br />
           • <strong>Occasions</strong> : annonces réelles février 2026. e-2008 Active Pack 17 499 €, ë-C4 Shine 2022 17 399 €, E-C4 2024 18 999 €, Arkana E-Tech 145 19 290 €, DS3 E-Tense 2020 16 499 €.<br />
+          • <strong>LLD R5 52</strong> : scénario "meilleure offre web" modélisé à 329 €/mois + 3 200 € d'apport + 160 €/an de frais (ordre de grandeur constaté sur comparateurs et offres constructeur en France pour 52 kWh). Maintenance lourde transférée au loueur, coût d'admin ajouté, pas de valeur résiduelle à 10 ans.<br />
           • <strong>Achat net</strong> : catalogue − bonus − surbonus. Reprise véhicule exclue (actif existant, pas une remise).<br />
           • <strong>Assurance amortie</strong> : −4%/an (dépréciation + bonus-malus France), plancher 65%, compensé par inflation générale.<br />
           • <strong>Risque batterie EV</strong> : −15% revente quand âge total véhicule ≥ 8 ans OU km total ≥ 160k (garantie expirée). Pour la DS3 2020 (6 ans à l'achat), le haircut s'applique dès l'an 2 de possession.<br />
